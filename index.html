@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Pomodoro Inteligente</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            transition: background-color 0.5s ease;
+        }
+        /* Colores de fondo dinámicos */
+        .work-mode { background-color: #ffe8e8; }
+        .break-mode { background-color: #e8f4ff; }
+        .idle-mode { background-color: #f7f7f7; }
+        
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 340px;
+        }
+        h1 { color: #333; margin-top: 0; font-size: 1.8rem; }
+        #status { font-size: 1.2rem; font-weight: bold; color: #555; margin-bottom: 5px; }
+        #timer { font-size: 5rem; font-weight: bold; color: #333; margin: 15px 0; font-variant-numeric: tabular-nums; }
+        
+        /* Contenedor de frases */
+        #quote {
+            font-size: 0.95rem;
+            color: #666;
+            font-style: italic;
+            min-height: 45px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 10px;
+        }
+
+        .btn-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            border: none; padding: 12px 20px; font-size: 1rem; border-radius: 8px;
+            cursor: pointer; font-weight: bold; transition: transform 0.1s, opacity 0.3s;
+            color: white; width: 100%; box-sizing: border-box;
+        }
+        button:active { transform: scale(0.97); }
+        
+        #workBtn { background-color: #5cb85c; }
+        #workBtn:hover { background-color: #4cae4c; }
+        
+        #breakBtn { background-color: #0275d8; }
+        #breakBtn:hover { background-color: #025aa5; }
+        
+        #stopBtn { background-color: #777; }
+        #stopBtn:hover { background-color: #555; }
+    </style>
+</head>
+<body class="idle-mode">
+
+    <div class="card">
+        <h1>Temporizador</h1>
+        <div id="status">¿Cómo empezamos hoy?</div>
+        <div id="timer">25:00</div>
+        <div id="quote">Elige tu modo para iniciar la jornada con ritmo.</div>
+        
+        <div class="btn-container">
+            <button id="workBtn" onclick="startTimer('work')">Iniciar Trabajo</button>
+            <button id="breakBtn" onclick="startTimer('break')">Iniciar con Descanso</button>
+        </div>
+        <button id="stopBtn" onclick="resetApp()">Terminar Jornada laboral</button>
+    </div>
+
+    <script>
+        const WORK_TIME = 25 * 60;
+        const BREAK_TIME = 5 * 60;
+
+        // Banco de frases dinámicas
+        const WORK_QUOTES = [
+            "¡Hora de enfocar esa mente brillante! Aléjate de las distracciones.",
+            "Un paso a la vez. Centra tu atención solo en estos 25 minutos.",
+            "Tu productividad es un músculo. ¡Vamos a entrenarlo hoy!",
+            "Hazlo por tu 'yo' del futuro. ¡A darle con todo!"
+        ];
+
+        const BREAK_QUOTES = [
+            "¡Excelente ciclo! Ahora despega los ojos de la pantalla y estírate.",
+            "Respira profundo. Ve por un vaso de agua, te lo has súper ganado.",
+            "Relaja los hombros y descansa la vista. Tu cerebro te lo agradecerá.",
+            "Desconexión total por 5 minutos. Disfruta tu merecida pausa."
+        ];
+
+        let timeLeft = WORK_TIME;
+        let isWorking = true; 
+        let isRunning = false;
+        let worker = null;
+        let audioCtx = null;
+        let silenceInterval = null;
+
+        const timerDisplay = document.getElementById('timer');
+        const statusDisplay = document.getElementById('status');
+        const quoteDisplay = document.getElementById('quote');
+        const workBtn = document.getElementById('workBtn');
+        const breakBtn = document.getElementById('breakBtn');
+        const body = document.body;
+
+        // Configuración del Web Worker anti-suspensión
+        const workerScript = `
+            let interval = null;
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    interval = setInterval(() => self.postMessage('tick'), 1000);
+                } else if (e.data === 'stop') {
+                    clearInterval(interval);
+                }
+            };
+        `;
+        const blob = new Blob([workerScript], { type: 'application/javascript' });
+        worker = new Worker(URL.createObjectURL(blob));
+
+        worker.onmessage = function(e) {
+            if (e.data === 'tick' && isRunning) {
+                timeLeft--;
+                updateDisplay();
+
+                if (timeLeft <= 0) {
+                    worker.postMessage('stop');
+                    stopSilence();
+                    isRunning = false;
+                    playAlarm();
+                    prepareNextCycle();
+                }
+            }
+        };
+
+        function updateDisplay() {
+            let minutes = Math.floor(timeLeft / 60);
+            let seconds = timeLeft % 60;
+            timerDisplay.textContent = 
+                (minutes < 10 ? "0" + minutes : minutes) + ":" + 
+                (seconds < 10 ? "0" + seconds : seconds);
+            document.title = timerDisplay.textContent + " - Pomodoro";
+        }
+
+        // Escudo definitivo anti-reposo del navegador (Audio inaudible)
+        function startSilence() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            silenceInterval = setInterval(() => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                gain.gain.setValueAtTime(0.001, audioCtx.currentTime); 
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 1);
+            }, 1000);
+        }
+
+        function stopSilence() {
+            if (silenceInterval) clearInterval(silenceInterval);
+        }
+
+        function playAlarm() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.5);
+                }, i * 600);
+            }
+        }
+
+        // Inicia el contador según el modo elegido
+        function startTimer(mode) {
+            if (isRunning) return;
+
+            isRunning = true;
+            isWorking = (mode === 'work');
+            timeLeft = isWorking ? WORK_TIME : BREAK_TIME;
+
+            // Ocultar ambos botones durante la marcha
+            workBtn.style.display = 'none';
+            breakBtn.style.display = 'none';
+
+            // Ajustar interfaz visual
+            if (isWorking) {
+                body.className = "work-mode";
+                statusDisplay.textContent = "Enfoque en progreso";
+                statusDisplay.style.color = "#d9534f";
+                quoteDisplay.textContent = WORK_QUOTES[Math.floor(Math.random() * WORK_QUOTES.length)];
+            } else {
+                body.className = "break-mode";
+                statusDisplay.textContent = "Descanso en progreso";
+                statusDisplay.style.color = "#0275d8";
+                quoteDisplay.textContent = BREAK_QUOTES[Math.floor(Math.random() * BREAK_QUOTES.length)];
+            }
+
+            updateDisplay();
+            startSilence();
+            worker.postMessage('start');
+        }
+
+        // Prepara la interfaz para el siguiente ciclo alternado automáticamente
+        function prepareNextCycle() {
+            isWorking = !isWorking; // Alternar modo
+            timeLeft = isWorking ? WORK_TIME : BREAK_TIME;
+
+            if (isWorking) {
+                body.className = "break-mode"; // Mantiene el tono del que acaba de terminar hasta que des clic
+                statusDisplay.textContent = "¡Descanso terminado!";
+                statusDisplay.style.color = "#d9534f";
+                quoteDisplay.textContent = "¡Tiempo fuera superado! ¿Listo para volver a la carga?";
+                
+                workBtn.style.display = 'block';
+                workBtn.textContent = "Iniciar Trabajo (25 min)";
+                breakBtn.style.display = 'none';
+            } else {
+                body.className = "work-mode";
+                statusDisplay.textContent = "¡Tiempo de enfoque terminado!";
+                statusDisplay.style.color = "#0275d8";
+                quoteDisplay.textContent = "¡Gran trabajo en ese bloque! Te has ganado un respiro.";
+                
+                breakBtn.style.display = 'block';
+                breakBtn.textContent = "Iniciar Descanso (5 min)";
+                workBtn.style.display = 'none';
+            }
+            updateDisplay();
+        }
+
+        // Reinicia la aplicación al terminar la jornada
+        function resetApp() {
+            worker.postMessage('stop');
+            stopSilence();
+            isRunning = false;
+            isWorking = true;
+            timeLeft = WORK_TIME;
+            
+            body.className = "idle-mode";
+            statusDisplay.textContent = "¿Cómo empezamos hoy?";
+            statusDisplay.style.color = "#555";
+            quoteDisplay.textContent = "Elige tu modo para iniciar la jornada con ritmo.";
+            
+            workBtn.style.display = 'block';
+            workBtn.textContent = "Iniciar Trabajo";
+            breakBtn.style.display = 'block';
+            breakBtn.textContent = "Iniciar con Descanso";
+            
+            updateDisplay();
+            alert("¡Gran trabajo hoy! Has terminado tu jornada laboral.");
+        }
+
+        // Inicializar interfaz estática
+        updateDisplay();
+    </script>
+</body>
+</html>
