@@ -86,6 +86,7 @@
     <script>
         const WORK_TIME = 25 * 60;
         const BREAK_TIME = 5 * 60;
+        const LONG_BREAK_TIME = 15 * 60; // 15 minutos de descanso largo
 
         // Banco de frases dinámicas
         const WORK_QUOTES = [
@@ -102,9 +103,16 @@
             "Desconexión total por 5 minutos. Disfruta tu merecida pausa."
         ];
 
+        const LONG_BREAK_QUOTES = [
+            "¡4 pomodoros completados! Toma un descanso largo, te lo ganaste.",
+            "Desconecta de verdad por 15 minutos. Camina, come algo o simplemente relájate.",
+            "El trabajo duro tiene su recompensa. Disfruta de esta pausa prolongada."
+        ];
+
         let timeLeft = WORK_TIME;
         let isWorking = true; 
         let isRunning = false;
+        let completedWorkCycles = 0; // Contador de ciclos completados
         let worker = null;
         let audioCtx = null;
         let silenceInterval = null;
@@ -140,6 +148,12 @@
                     stopSilence();
                     isRunning = false;
                     playAlarm();
+                    
+                    // Si acaba de terminar un ciclo de trabajo, aumentamos el contador
+                    if (isWorking) {
+                        completedWorkCycles++;
+                    }
+
                     prepareNextCycle();
                 }
             }
@@ -151,7 +165,10 @@
             timerDisplay.textContent = 
                 (minutes < 10 ? "0" + minutes : minutes) + ":" + 
                 (seconds < 10 ? "0" + seconds : seconds);
-            document.title = timerDisplay.textContent + " - Pomodoro";
+            
+            // Mostrar contador de ciclos en el título
+            let cycleText = isWorking ? `(${completedWorkCycles}/4)` : "";
+            document.title = `${timerDisplay.textContent} ${cycleText} - Pomodoro`;
         }
 
         // Escudo definitivo anti-reposo del navegador (Audio inaudible)
@@ -191,13 +208,16 @@
             }
         }
 
-        // Inicia el contador según el modo elegido
+        // Inicia el contador según el modo elegido ('work', 'break' o 'longBreak')
         function startTimer(mode) {
             if (isRunning) return;
 
             isRunning = true;
             isWorking = (mode === 'work');
-            timeLeft = isWorking ? WORK_TIME : BREAK_TIME;
+            
+            if (mode === 'work') timeLeft = WORK_TIME;
+            else if (mode === 'break') timeLeft = BREAK_TIME;
+            else if (mode === 'longBreak') timeLeft = LONG_BREAK_TIME;
 
             // Ocultar ambos botones durante la marcha
             workBtn.style.display = 'none';
@@ -206,14 +226,15 @@
             // Ajustar interfaz visual
             if (isWorking) {
                 body.className = "work-mode";
-                statusDisplay.textContent = "Enfoque en progreso";
+                statusDisplay.textContent = `Enfoque en progreso (Ciclo ${completedWorkCycles + 1})`;
                 statusDisplay.style.color = "#d9534f";
                 quoteDisplay.textContent = WORK_QUOTES[Math.floor(Math.random() * WORK_QUOTES.length)];
             } else {
                 body.className = "break-mode";
-                statusDisplay.textContent = "Descanso en progreso";
+                statusDisplay.textContent = mode === 'longBreak' ? "Descanso largo en progreso" : "Descanso en progreso";
                 statusDisplay.style.color = "#0275d8";
-                quoteDisplay.textContent = BREAK_QUOTES[Math.floor(Math.random() * BREAK_QUOTES.length)];
+                const quotes = mode === 'longBreak' ? LONG_BREAK_QUOTES : BREAK_QUOTES;
+                quoteDisplay.textContent = quotes[Math.floor(Math.random() * quotes.length)];
             }
 
             updateDisplay();
@@ -224,26 +245,40 @@
         // Prepara la interfaz para el siguiente ciclo alternado automáticamente
         function prepareNextCycle() {
             isWorking = !isWorking; // Alternar modo
-            timeLeft = isWorking ? WORK_TIME : BREAK_TIME;
 
             if (isWorking) {
-                body.className = "break-mode"; // Mantiene el tono del que acaba de terminar hasta que des clic
+                // Toca preparar la vista para TRABAJAR (acaba de terminar un descanso)
+                timeLeft = WORK_TIME;
+                body.className = "break-mode"; // Mantiene el tono del que acaba de terminar
                 statusDisplay.textContent = "¡Descanso terminado!";
                 statusDisplay.style.color = "#d9534f";
                 quoteDisplay.textContent = "¡Tiempo fuera superado! ¿Listo para volver a la carga?";
                 
                 workBtn.style.display = 'block';
                 workBtn.textContent = "Iniciar Trabajo (25 min)";
+                workBtn.setAttribute("onclick", "startTimer('work')");
                 breakBtn.style.display = 'none';
             } else {
-                body.className = "work-mode";
+                // Toca preparar la vista para DESCANSAR (acaba de terminar un trabajo)
+                let isLongBreak = (completedWorkCycles % 4 === 0 && completedWorkCycles > 0);
+                timeLeft = isLongBreak ? LONG_BREAK_TIME : BREAK_TIME;
+
+                body.className = "work-mode"; 
                 statusDisplay.textContent = "¡Tiempo de enfoque terminado!";
                 statusDisplay.style.color = "#0275d8";
-                quoteDisplay.textContent = "¡Gran trabajo en ese bloque! Te has ganado un respiro.";
                 
                 breakBtn.style.display = 'block';
-                breakBtn.textContent = "Iniciar Descanso (5 min)";
                 workBtn.style.display = 'none';
+
+                if (isLongBreak) {
+                    quoteDisplay.textContent = "¡4 ciclos completados! Te has ganado un descanso largo.";
+                    breakBtn.textContent = "Iniciar Descanso Largo (15 min)";
+                    breakBtn.setAttribute("onclick", "startTimer('longBreak')");
+                } else {
+                    quoteDisplay.textContent = "¡Gran trabajo en ese bloque! Te has ganado un respiro.";
+                    breakBtn.textContent = "Iniciar Descanso Corto (5 min)";
+                    breakBtn.setAttribute("onclick", "startTimer('break')");
+                }
             }
             updateDisplay();
         }
@@ -254,6 +289,7 @@
             stopSilence();
             isRunning = false;
             isWorking = true;
+            completedWorkCycles = 0; // Reiniciar contador
             timeLeft = WORK_TIME;
             
             body.className = "idle-mode";
@@ -263,8 +299,11 @@
             
             workBtn.style.display = 'block';
             workBtn.textContent = "Iniciar Trabajo";
+            workBtn.setAttribute("onclick", "startTimer('work')");
+
             breakBtn.style.display = 'block';
             breakBtn.textContent = "Iniciar con Descanso";
+            breakBtn.setAttribute("onclick", "startTimer('break')");
             
             updateDisplay();
             alert("¡Gran trabajo hoy! Has terminado tu jornada laboral.");
