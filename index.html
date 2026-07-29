@@ -166,8 +166,8 @@
                 (minutes < 10 ? "0" + minutes : minutes) + ":" + 
                 (seconds < 10 ? "0" + seconds : seconds);
             
-            // Mostrar contador de ciclos en el título
-            let cycleText = isWorking ? `(${completedWorkCycles}/4)` : "";
+            // Mostrar contador continuo de ciclos en el título
+            let cycleText = isWorking ? `(Ciclo ${completedWorkCycles + 1})` : "";
             document.title = `${timerDisplay.textContent} ${cycleText} - Pomodoro`;
         }
 
@@ -208,7 +208,7 @@
             }
         }
 
-        // Inicia el contador según el modo elegido ('work', 'break' o 'longBreak')
+        // Inicia el contador según el modo elegido
         function startTimer(mode) {
             if (isRunning) return;
 
@@ -244,22 +244,21 @@
 
         // Prepara la interfaz para el siguiente ciclo alternado automáticamente
         function prepareNextCycle() {
-            isWorking = !isWorking; // Alternar modo
+            isWorking = !isWorking; 
 
             if (isWorking) {
-                // Toca preparar la vista para TRABAJAR (acaba de terminar un descanso)
                 timeLeft = WORK_TIME;
-                body.className = "break-mode"; // Mantiene el tono del que acaba de terminar
+                body.className = "break-mode"; 
                 statusDisplay.textContent = "¡Descanso terminado!";
                 statusDisplay.style.color = "#d9534f";
                 quoteDisplay.textContent = "¡Tiempo fuera superado! ¿Listo para volver a la carga?";
                 
                 workBtn.style.display = 'block';
-                workBtn.textContent = "Iniciar Trabajo (25 min)";
+                workBtn.textContent = `Iniciar Trabajo (Ciclo ${completedWorkCycles + 1})`;
                 workBtn.setAttribute("onclick", "startTimer('work')");
                 breakBtn.style.display = 'none';
             } else {
-                // Toca preparar la vista para DESCANSAR (acaba de terminar un trabajo)
+                // Sigue calculando descansos largos en múltiplos de 4 infinitamente (4, 8, 12...)
                 let isLongBreak = (completedWorkCycles % 4 === 0 && completedWorkCycles > 0);
                 timeLeft = isLongBreak ? LONG_BREAK_TIME : BREAK_TIME;
 
@@ -271,7 +270,7 @@
                 workBtn.style.display = 'none';
 
                 if (isLongBreak) {
-                    quoteDisplay.textContent = "¡4 ciclos completados! Te has ganado un descanso largo.";
+                    quoteDisplay.textContent = `¡Has completado ${completedWorkCycles} ciclos! Te has ganado un descanso largo.`;
                     breakBtn.textContent = "Iniciar Descanso Largo (15 min)";
                     breakBtn.setAttribute("onclick", "startTimer('longBreak')");
                 } else {
@@ -283,13 +282,17 @@
             updateDisplay();
         }
 
-        // Reinicia la aplicación al terminar la jornada
+        // Reinicia la aplicación y muestra el resumen al terminar la jornada
         function resetApp() {
             worker.postMessage('stop');
             stopSilence();
             isRunning = false;
             isWorking = true;
-            completedWorkCycles = 0; // Reiniciar contador
+            
+            // Guardamos el total de ciclos antes de reiniciarlo a 0
+            let totalCycles = completedWorkCycles;
+            
+            completedWorkCycles = 0; 
             timeLeft = WORK_TIME;
             
             body.className = "idle-mode";
@@ -306,7 +309,13 @@
             breakBtn.setAttribute("onclick", "startTimer('break')");
             
             updateDisplay();
-            alert("¡Gran trabajo hoy! Has terminado tu jornada laboral.");
+            
+            // Mostramos el mensaje final dependiendo de la productividad
+            if (totalCycles > 0) {
+                alert(`¡Gran trabajo hoy! Has terminado tu jornada laboral.\n\nLograste concretar un total de ${totalCycles} ciclo(s) de trabajo de corrido.`);
+            } else {
+                alert("Jornada laboral terminada.\n\n¡Mañana será una excelente oportunidad para enfocarse!");
+            }
         }
 
         // Inicializar interfaz estática
